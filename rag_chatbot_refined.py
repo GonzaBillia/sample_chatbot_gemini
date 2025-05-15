@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
 from langchain_community.vectorstores import PGVector
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate

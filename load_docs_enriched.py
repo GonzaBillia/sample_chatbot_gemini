@@ -37,8 +37,8 @@ from PIL import Image  # Para manejar imágenes
 import pytesseract  # Para OCR
 
 # Opcional: para usar un modelo multimodal de Google para captioning
-from google.generativeai import GenerativeModel
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from google.genai import GenerativeModel
+from google.genai.types import HarmCategory, HarmBlockThreshold
 
 # ---------------------------------------------------------------------------
 # Configuración de entorno
