@@ -45,13 +45,16 @@ def log_qa_record(
     qa_chain,
     user_id: str | None = None,
 ) -> uuid.UUID:
+    # 1) Obtener embedding de la pregunta
     embedding_fn = _resolve_embedding_fn(qa_chain)
     vector = embedding_fn(question)
 
-    # Obtener IDs de chunks fuente si tu chain los devuelve
-    source_docs = getattr(qa_chain, "last_run", {}).get("source_documents", [])
-    chunks = [d.metadata.get("chunk_id") for d in source_docs]
+    # 2) Invocar la chain para obtener answer y docs
 
+    source_docs = qa_chain.retriever.get_relevant_documents(question)
+    chunks = [d.metadata.get("chunk_id") for d in source_docs if d.metadata.get("chunk_id")]
+
+    # 3) Armar metadata y guardar
     metadata: Dict[str, Any] = {
         "chunks": chunks,
         "user_id": user_id,
@@ -70,6 +73,7 @@ def log_qa_record(
         return record.id
     finally:
         db.close()
+
 
 
 # ------------------------------------------------------------------

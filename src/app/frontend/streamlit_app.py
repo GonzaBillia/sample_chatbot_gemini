@@ -13,6 +13,7 @@ import os
 import sys
 import uuid
 import threading
+import json
 from pathlib import Path
 from typing import Set
 
@@ -25,6 +26,8 @@ sys.path.insert(0, str(SRC_PATH))
 from app.core.config import get_settings
 from app.langchain.chains import get_qa_chain
 from app.database.helpers.record_helper import log_qa_async, update_rating_async
+from app.database.helpers.classification_helper import classification_chain
+from app.config.complexity_map import CONFIG_MAP
 
 # ── Session‑state keys ──────────────────────────────────────────────
 _HIST = "hist"       # List[tuple[str, str]]
@@ -44,10 +47,11 @@ def _init_state() -> None:
 # ── Rating widget ──────────────────────────────────────────────────
 
 def _render_rating_widget(record_id: uuid.UUID) -> None:
-    """Render slider+button for `record_id`; hide widget after submission."""
+    """Render slider+button para `record_id`; tras calificar, desaparece y muestra agradecimiento."""
 
-    if record_id in st.session_state[_RATED]:
-        return  # Already rated
+    # 2) Solo pintamos mientras siga pendiente
+    if record_id not in st.session_state[_PENDING]:
+        return
 
     container = st.container()
     slider_key = f"slider_{record_id.hex}"
@@ -63,19 +67,16 @@ def _render_rating_widget(record_id: uuid.UUID) -> None:
             key=slider_key,
         )
         if st.button("Enviar calificación", key=button_key):
-            # 1) Persist in Session State
+            # 3) Guardar en sesión
             st.session_state[_RATED][record_id] = rating_val
-            if record_id in st.session_state[_PENDING]:
-                st.session_state[_PENDING].remove(record_id)
+            st.session_state[_PENDING].remove(record_id)
 
-            # 2) Fire‑and‑forget DB update
+            # 4) Actualizar en segundo plano
             threading.Thread(
                 target=lambda: update_rating_async(record_id, rating_val),
                 daemon=True,
             ).start()
 
-            # 3) Hide widget immediately
-            container.empty()
             st.success("¡Gracias por tu feedback!")
 
 
@@ -105,6 +106,10 @@ def main() -> None:
     for role, msg in st.session_state[_HIST]:
         st.chat_message(role).write(msg)
 
+    if st.session_state[_PENDING]:
+        last_rec_id = st.session_state[_PENDING][-1]
+        _render_rating_widget(last_rec_id)
+
     # Entrada del usuario -------------------------------------------
     user_input = st.chat_input("Haz tu pregunta aquí…")
     rendered_now: Set[uuid.UUID] = set()
@@ -112,39 +117,54 @@ def main() -> None:
     if user_input:
         st.chat_message("user").write(user_input)
 
+        # 3) Invocar la chain y mostrar respuesta
         with st.chat_message("assistant"):
             spinner = st.empty()
             spinner.write("Pensando…")
+            
+            # 1) Clasificar complejidad
+            output = classification_chain.invoke({"question": user_input})
+            complexity = output["text"]
+
+            if complexity not in CONFIG_MAP:
+                complexity = "simple"
+
+            params = CONFIG_MAP.get(complexity, CONFIG_MAP["simple"])
+
+            # 2) Reconstruir la QA chain con los parámetros adecuados
+            qa_chain = get_qa_chain(
+                top_k=params["top_k"],
+                temperature=params["temperature"],
+            )
 
             try:
-                qa_chain.retriever.search_kwargs["k"] = 5
                 result = qa_chain.invoke({"query": user_input})
-                answer: str = result["result"]
+                answer = result["result"]
             except Exception:
                 answer = "Lo siento, ocurrió un error al procesar tu pregunta."
-
             spinner.empty()
             st.markdown(answer)
 
-            # Registrar QA ------------------------------------------
+            # 4) Log y rating
             try:
                 rec_id = log_qa_async(
-                    question=user_input,
-                    answer=answer,
-                    qa_chain=qa_chain,
-                    user_id="anon",
+                    user_input,
+                    answer,
+                    qa_chain,
+                    "anon",
                 )
                 st.session_state[_IDS].append(rec_id)
                 st.session_state[_PENDING].append(rec_id)
-
-                _render_rating_widget(rec_id)
-                rendered_now.add(rec_id)
+            
             except Exception as exc:
                 st.warning(f"No se pudo registrar la conversación: {exc}")
 
-        # Guardar en historial --------------------------------------
-        st.session_state[_HIST].extend([("user", user_input), ("assistant", answer)])
 
+        # 5) Actualizar historial
+        st.session_state[_HIST].extend([
+            ("user", user_input),
+            ("assistant", answer)
+        ])
 
 if __name__ == "__main__":
     main()

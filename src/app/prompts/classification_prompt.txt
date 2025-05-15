@@ -1,0 +1,13 @@
+Dada esta pregunta de usuario:
+«{question}»
+
+Decide si es **simple** o **compleja** según estos criterios:
+  • Preguntas de definición o de un solo paso son simples.  
+  • Preguntas que piden una serie de pasos de un proceso son simples.  
+  • Preguntas que requieren múltiples pasos, contexto profundo o ejemplos son complejas.  
+  • Preguntas que piden explicación, análisis o revisión son complejas.  
+
+**Responde solo** con una de estas dos palabras (en minúscula, sin comillas):  
+simple  
+o  
+compleja
