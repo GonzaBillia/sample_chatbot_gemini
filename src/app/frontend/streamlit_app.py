@@ -145,11 +145,6 @@ def main() -> None:
         # Guardar en historial --------------------------------------
         st.session_state[_HIST].extend([("user", user_input), ("assistant", answer)])
 
-    # Dibujar widgets pendientes (respuestas de ciclos previos) -----
-    remaining_ids: Set[uuid.UUID] = set(st.session_state[_PENDING]) - rendered_now
-    for pid in remaining_ids:
-        _render_rating_widget(pid)
-
 
 if __name__ == "__main__":
     main()

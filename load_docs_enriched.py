@@ -20,7 +20,7 @@ Requisitos extra
 * python-docx, pillow, pytesseract (ya estaban)
 """
 
-import os
+import os, csv
 import io
 import tempfile
 from dotenv import load_dotenv
@@ -36,9 +36,9 @@ from docx import Document as DocxDocument  # Usar python-docx
 from PIL import Image  # Para manejar imágenes
 import pytesseract  # Para OCR
 
-# Opcional: para usar un modelo multimodal de Google para captioning
-from google.genai import GenerativeModel
-from google.genai.types import HarmCategory, HarmBlockThreshold
+# --- Import nuevo SDK google-genai ---
+from google import genai
+from google.genai import types
 
 # ---------------------------------------------------------------------------
 # Configuración de entorno
@@ -46,54 +46,53 @@ from google.genai.types import HarmCategory, HarmBlockThreshold
 
 load_dotenv()
 
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_NAME = os.getenv("DB_NAME", "your_db_name")
-DB_USER = os.getenv("DB_USER", "your_db_user")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "your_db_password")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")  # Necesaria si llamas a la API
+DB_HOST         = os.getenv("DB_HOST", "localhost")
+DB_PORT         = os.getenv("DB_PORT", "5432")
+DB_NAME         = os.getenv("DB_NAME", "your_db_name")
+DB_USER         = os.getenv("DB_USER", "your_db_user")
+DB_PASSWORD     = os.getenv("DB_PASSWORD", "your_db_password")
+GOOGLE_API_KEY  = os.getenv("GOOGLE_API_KEY")  # Necesaria para genai.Client
 
-COLLECTION_NAME = "knowledge_collection"
-EMBEDDING_DIMENSION = 768  # text-embedding-004 devuelve 768‑D
+COLLECTION_NAME     = "knowledge_collection"
+EMBEDDING_DIMENSION = 768  # text-embedding-004 devuelve 768-D
 
 CONNECTION_STRING = (
     f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 )
 
-# Carpeta donde están los documentos a procesar
-DATA_DIRECTORY = "./src/docs"  # <‑‑ Cámbialo si es necesario
+DATA_DIRECTORY = "./src/docs"  # Carpeta de documentos
 
-# Configuración del Text Splitter (para docs sin segmentar)
-CHUNK_SIZE = 400  # 400 tokens ~ ≈300‑350 palabras
+CHUNK_SIZE    = 400  # tokens (~300-350 palabras)
 CHUNK_OVERLAP = 80
 
-# Configuración de Tesseract OCR (cambia la ruta si es necesario)
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 # ---------------------------------------------------------------------------
 # Inicializar modelos
 # ---------------------------------------------------------------------------
 
+# Embeddings
 try:
     embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
     print("➡️  Modelo de embedding inicializado (text-embedding-004).")
 except Exception as e:
     raise SystemExit(f"❌ Error al inicializar embeddings: {e}. Comprueba GOOGLE_API_KEY.")
 
-# Opcional: modelo multimodal para imágenes/captioning
+# Cliente unificado de Gemini (texto y visión)
 try:
-    vision_model = GenerativeModel("models/gemini-2.0-flash-thinking-exp-1219")
-    print("➡️  Modelo multimodal (Vision) inicializado.")
+    client = genai.Client(api_key=GOOGLE_API_KEY)
+    print("➡️  Cliente google-genai inicializado.")
+    vision_model = client  # usa client.generate() para captioning
 except Exception as e:
-    print(f"⚠️  Vision no disponible: {e}")
-    vision_model = None  # Continuar sin visión
+    print(f"⚠️  No se pudo inicializar google-genai: {e}")
+    vision_model = None
 
 # ---------------------------------------------------------------------------
 # Utilidades específicas
 # ---------------------------------------------------------------------------
 
 def extract_images_from_docx(path: str):
-    """Placeholder – implementa si necesitas extraer imágenes de un DOCX."""
+    """Placeholder – implementa si necesitas extraer imágenes de un DOCX."""
     return []
 
 def process_image(image_bytes: bytes) -> str:
@@ -102,9 +101,22 @@ def process_image(image_bytes: bytes) -> str:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
             tmp.write(image_bytes)
             tmp_path = tmp.name
+
         img = Image.open(tmp_path)
-        text = pytesseract.image_to_string(img, lang="spa+eng")
-        return text.strip()
+        # Primero OCR
+        text = pytesseract.image_to_string(img, lang="spa+eng").strip()
+
+        # Si hay cliente Vision, añadir captioning de Gemini
+        if vision_model:
+            # ejemplo de uso; no explora exhaustivamente todos los parámetros
+            response = vision_model.generate(
+                model="gemini-2.0-flash-thinking-exp-1219",
+                prompt="Describe esta imagen de forma concisa."
+            )
+            caption = response.text or ""
+            text = (text + "\n" + caption).strip()
+
+        return text
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
@@ -114,40 +126,70 @@ def process_image(image_bytes: bytes) -> str:
 # ---------------------------------------------------------------------------
 
 def load_csv_chunks(path: str) -> List[Document]:
-    """Convierte cada fila del CSV enriquecido en un `Document` con metadatos."""
-    df = pd.read_csv(path)
+    """Convierte cada fila del CSV enriquecido en un `Document` con metadatos,
+    detectando automáticamente el delimitador y cargando todas las columnas QA."""
+    # 1) Detectar delimitador
+    with open(path, "r", encoding="utf-8", newline="") as f:
+        sample = f.read(2048)
+        dialect = csv.Sniffer().sniff(sample, delimiters=[",", ";", "\t"])
+        sep = dialect.delimiter
+
+    # 2) Leer CSV
+    df = pd.read_csv(path, sep=sep, encoding="utf-8")
     required_cols = {
-        "text_enriched",
         "chunk_id",
+        "text_enriched",
+        "word_count",
         "modulo",
         "sistema",
         "tipo",
         "fase",
-        "word_count",
         "doc_version",
+        "summary",
+        "qa_1_question",
+        "qa_1_answer",
+        "qa_2_question",
+        "qa_2_answer",
+        "qa_3_question",
+        "qa_3_answer",
     }
-    if not required_cols.issubset(df.columns):
+    missing = required_cols - set(df.columns)
+    if missing:
         raise ValueError(
-            f"El CSV {path} no tiene todas las columnas requeridas: {required_cols}."
+            f"El CSV {path} no tiene las columnas requeridas: {', '.join(missing)}."
         )
 
     docs: List[Document] = []
     for _, row in df.iterrows():
         metadata: Dict[str, Any] = {
-            "chunk_id": row["chunk_id"],
-            "modulo": row["modulo"],
-            "sistema": row["sistema"],
-            "tipo": row["tipo"],
-            "fase": row["fase"],
-            "word_count": int(row["word_count"]),
-            "doc_version": row["doc_version"],
-            "source_file": os.path.basename(path),
-            "pre_segmented": True,  # bandera para saltar el splitter
+            "chunk_id":           row["chunk_id"],
+            "word_count":         int(row["word_count"]),
+            "modulo":             row["modulo"],
+            "sistema":            row["sistema"],
+            "tipo":               row["tipo"],
+            "fase":               row["fase"],
+            "doc_version":        row["doc_version"],
+            "summary":            row["summary"],
+            # pares pregunta-respuesta
+            "qa_1_question":      row["qa_1_question"],
+            "qa_1_answer":        row["qa_1_answer"],
+            "qa_2_question":      row["qa_2_question"],
+            "qa_2_answer":        row["qa_2_answer"],
+            "qa_3_question":      row["qa_3_question"],
+            "qa_3_answer":        row["qa_3_answer"],
+            # datos propios del loader
+            "source_file":        os.path.basename(path),
+            "pre_segmented":      True,
         }
-        docs.append(Document(page_content=row["text_enriched"], metadata=metadata))
-    print(f"  📑 {len(docs)} chunks cargados desde CSV {os.path.basename(path)}.")
-    return docs
+        docs.append(
+            Document(
+                page_content=row["text_enriched"],
+                metadata=metadata
+            )
+        )
 
+    print(f"  📑 {len(docs)} chunks cargados desde CSV {os.path.basename(path)} (sep='{sep}').")
+    return docs
 # ---------------------------------------------------------------------------
 # Procesamiento principal
 # ---------------------------------------------------------------------------
