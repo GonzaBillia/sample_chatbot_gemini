@@ -1,0 +1,5 @@
+[install]
+cmds = "pip install --no-cache-dir -r requirements.txt"
+
+[start]
+cmd = "streamlit run src/app/frontend/streamlit_app.py --server.port $PORT --server.address 0.0.0.0"
