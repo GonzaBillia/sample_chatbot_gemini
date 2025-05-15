@@ -12,7 +12,7 @@ class QARecord(Base):
     id         = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     question   = Column(Text, nullable=False)
     answer     = Column(Text, nullable=False)
-    metadata   = Column(JSON, nullable=False)
+    meta       = Column("metadata", JSON, nullable=False)
     rating     = Column(Float, nullable=True)
     embedding  = Column(Vector(768), nullable=False)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
