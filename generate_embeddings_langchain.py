@@ -77,15 +77,15 @@ try:
     # Y tiene la estructura esperada por LangChain (uuid, collection_id, embedding, document, cmetadata)
     # Pasarle table_name=TABLE_NAME_PGVECTOR ayuda a asegurar que se usa la tabla correcta
     # con la estructura esperada.
-    vectorstore = PGVector.from_documents(
-        embedding=embeddings,
-        documents=chunks,
-        collection_name=COLLECTION_NAME,
-        connection_string=CONNECTION_STRING,
-        table_name=TABLE_NAME_PGVECTOR, # <-- Especificar el nombre de tabla que debe usar (con estructura LangChain)
-        # Si quieres vaciar la colección antes de insertar:
-        # pre_delete_collection=True
-    )
+    # vectorstore = PGVector.from_documents(
+    #     embedding=embeddings,
+    #     documents=chunks,
+    #     collection_name=COLLECTION_NAME,
+    #     connection_string=CONNECTION_STRING,
+    #     table_name=TABLE_NAME_PGVECTOR, # <-- Especificar el nombre de tabla que debe usar (con estructura LangChain)
+    #     # Si quieres vaciar la colección antes de insertar:
+    #     # pre_delete_collection=True
+    # )
     print(f"Embeddings de {len(chunks)} fragmentos insertados correctamente.")
 
 except Exception as e:
