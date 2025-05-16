@@ -1,4 +1,4 @@
-from langchain.chains import LLMChain
+from langchain.schema.runnable import RunnableSequence
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from app.core.config import get_settings
@@ -12,11 +12,14 @@ complexity_prompt = PromptTemplate(
     input_variables=["question"],
 )
 
-# Cadena LLM determinista para clasificación de complejidad
-classification_chain = LLMChain(
-    llm=ChatGoogleGenerativeAI(
-        model=defaults.llm_model,
-        temperature=0.0,
-    ),
-    prompt=complexity_prompt,
-)
+# Construir la secuencia Runnable (prompt | llm)
+llm = ChatGoogleGenerativeAI(model=defaults.llm_model, temperature=0.0)
+classification_chain: RunnableSequence = complexity_prompt | llm
+
+# Para clasificar:
+def classify_complexity(question: str) -> str:
+    # Ejecuta la secuencia de forma sincrónica
+    result = classification_chain.invoke({"question": question})
+    # Si quieres manejarlo como LLMChain antiguo con 'run':
+    # result = classification_chain.run(question=question)
+    return result

@@ -124,7 +124,7 @@ def main() -> None:
             
             # 1) Clasificar complejidad
             output = classification_chain.invoke({"question": user_input})
-            complexity = output["text"]
+            complexity = output.content
 
             if complexity not in CONFIG_MAP:
                 complexity = "simple"
@@ -158,7 +158,6 @@ def main() -> None:
             
             except Exception as exc:
                 st.warning(f"No se pudo registrar la conversación: {exc}")
-
 
         # 5) Actualizar historial
         st.session_state[_HIST].extend([

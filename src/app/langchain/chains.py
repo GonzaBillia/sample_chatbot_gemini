@@ -4,7 +4,7 @@
 Configuración de la cadena de RetrievalQA usando LangChain y Gemini,
 con prompt externalizado en `src/app/prompts/base_prompt.txt`.
 """
-from langchain.chains import RetrievalQA
+from langchain.chains.retrieval_qa.base import RetrievalQA
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 

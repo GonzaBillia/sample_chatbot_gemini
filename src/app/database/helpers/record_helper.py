@@ -3,6 +3,7 @@ from app.database.session import SessionLocal
 from app.database.repositories.qa_repository import QARepository
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 import threading, uuid
+from sqlalchemy.orm import Session
 from typing import Any, Callable, Dict, List
 from types import MethodType
 
@@ -49,19 +50,26 @@ def log_qa_record(
     embedding_fn = _resolve_embedding_fn(qa_chain)
     vector = embedding_fn(question)
 
-    # 2) Invocar la chain para obtener answer y docs
+    # 2) Recuperar documentos relevantes usando invoke en lugar de get_relevant_documents
+    # Sincrónico:
+    source_docs = qa_chain.retriever.invoke(question)
+    # O bien, si tu retriever define __call__, podrías hacer:
+    # source_docs = qa_chain.retriever(question)
 
-    source_docs = qa_chain.retriever.get_relevant_documents(question)
-    chunks = [d.metadata.get("chunk_id") for d in source_docs if d.metadata.get("chunk_id")]
+    chunks = [
+        d.metadata.get("chunk_id")
+        for d in source_docs
+        if d.metadata.get("chunk_id")
+    ]
 
-    # 3) Armar metadata y guardar
+    # 3) Armar metadata y guardar en DB
     metadata: Dict[str, Any] = {
         "chunks": chunks,
         "user_id": user_id,
         "model": "gemini-text-embedding-004",
     }
 
-    db = SessionLocal()
+    db: Session = SessionLocal()
     try:
         repo = QARepository(db)
         record = repo.create_record(
@@ -73,7 +81,6 @@ def log_qa_record(
         return record.id
     finally:
         db.close()
-
 
 
 # ------------------------------------------------------------------
